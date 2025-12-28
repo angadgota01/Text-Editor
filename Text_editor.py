@@ -11,8 +11,12 @@ class BackendManager:
 
     def load_library(self):
         system = platform.system()
-        lib_name = "libds.dll" if system == "Windows" else "libds.so"
-        if system == "Darwin": lib_name = "libds.dylib"
+        if system == "Windows":
+            lib_name = "libds.dll"  
+        elif system == "Darwin": 
+            lib_name = "libds.dylib"
+        else:
+            lib_name = "libds.so"
 
         paths = [
             os.path.join(os.path.dirname(__file__), "c_ds", lib_name),

@@ -22,3 +22,8 @@ __pycache__/
 # --- OS Generated Files ---
 .DS_Store
 Thumbs.db
+
+# C Dynamic Libraries
+./c_ds/libds.so
+./c_ds/libds.dll
+./c_ds/libds.dylib

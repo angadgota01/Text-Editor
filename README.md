@@ -1,22 +1,23 @@
-#Text Editor
+# Text Editor
 
-##How to Run:
+## How to Run:
 
 Compile the C files:
 Run the following from within c_ds folder:
 
 macOS
-gcc -dynamiclib -o libds.dylib stack.c document.c save.c ds_api.c
+gcc -dynamiclib -o libds.dylib editor_core.c
 
 Linux
-gcc -shared -fPIC -o libds.so stack.c document.c save.c ds_api.c
+gcc -shared -fPIC -o libds.so editor_core.c
 
 Windows (MinGW)
-gcc -shared -o libds.dll stack.c document.c save.c ds_api.c
+gcc -shared -o libds.dll editor_core.c
 
 Then run Text editor.py, from the root folder
 
-##Functionality:
+## Functionality:
 -Undo
 -Redo
 -Save File
+-Multiple Fonts and Font Sizes
