@@ -63,6 +63,8 @@ char* pop(Stack* s) {
 #define EXPORT __declspec(dllexport)
 #elif __APPLE__
 #define EXPORT __attribute__((visibility("default")))
+#elif __linux__
+#define EXPORT __attribute__((visibility("default")))
 #else
 #define EXPORT
 #endif
