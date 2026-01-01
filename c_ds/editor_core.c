@@ -160,19 +160,24 @@ EXPORT void push_undo_state(const char* text) {
 }
 
 EXPORT char* perform_undo(const char* current_text) {
-    
-    if (current_text) push(&redoStack, current_text);
-    
-    
-    return pop(&undoStack);
+    if (undoStack.top <= 0) return NULL;
+
+    char* current = pop(&undoStack);
+    push(&redoStack, current);
+    free(current);
+
+    return strdup(undoStack.data[undoStack.top]);
 }
 
-EXPORT char* perform_redo(const char* current_text) {
-    
-    if (current_text) push(&undoStack, current_text);
 
-    
-    return pop(&redoStack);
+EXPORT char* perform_redo(const char* current_text) {
+    if (redoStack.top <= 0) return NULL;
+
+    char* current = pop(&redoStack);
+    push(&undoStack, current);
+    free(current);
+
+    return strdup(redoStack.data[redoStack.top]);
 }
 
 EXPORT void save_file(const char* filename, const char* text) {
@@ -192,22 +197,28 @@ EXPORT int autocomplete(
     const char* prefix,
     char suggestions[MAX_SUGGESTIONS][MAX_WORD_LEN]
 ) {
+    if (!root || !prefix || prefix[0] == '\0') return 0;
+
     TrieNode* curr = root;
     char buffer[MAX_WORD_LEN];
     int depth = 0;
 
+    // Traverse using lowercase for matching
     for (int i = 0; prefix[i]; i++) {
+        if (depth >= MAX_WORD_LEN - 1) return 0;
         char c = tolower(prefix[i]);
-        if (c < 'a' || c > 'z') return 0;
+        if (c < 'a' || c > 'z') return 0;  // Reject non-alphabetic 
 
         int idx = c - 'a';
         if (!curr->children[idx]) return 0;
 
-        buffer[depth++] = c;
+        // Store the ORIGINAL character (with case) in buffer for later reconstruction
+        buffer[depth++] = prefix[i];
         curr = curr->children[idx];
     }
 
     int count = 0;
     dfs_collect(curr, buffer, depth, suggestions, &count);
+
     return count;
 }

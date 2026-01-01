@@ -124,14 +124,18 @@ class AdvancedText(tk.Frame):
 
     def get_current_word(self):
         index = self.text.index(tk.INSERT)
-        start = self.text.search(r'\m\w+$', index, backwards=True, regexp=True)
-        if not start:
-            return ""
-        return self.text.get(start, index)
+        text_before = self.text.get("1.0", index)
+        word = ""
+        for c in reversed(text_before):
+            if not c.isalnum() and c != "_":  # stop at non-word char
+                break
+            word = c + word
+        return word
+
 
     def get_previous_word_range(self):
         index = self.text.index(tk.INSERT)
-        start = self.text.search(r'\m\w+\M\s*$', index, backwards=True, regexp=True)
+        start = self.text.search(r'\b\w+\b\s*$', index, backwards=True, regexp=True)
         if not start:
             return None
         end = self.text.index(f"{start} wordend")
@@ -139,6 +143,7 @@ class AdvancedText(tk.Frame):
 
     def show_autocomplete(self):
         prefix = self.get_current_word()
+        # print("ENTER show_autocomplete", prefix)
 
         if len(prefix) < 2:
             self.hide_autocomplete()
@@ -146,10 +151,13 @@ class AdvancedText(tk.Frame):
 
         suggestions = ((c_char * 64) * 5)()
         count = backend.lib.autocomplete(prefix.encode(), suggestions)
+        print("Count:", count)
 
         if count == 0:
             self.hide_autocomplete()
             return
+
+        print("PREFIX:", repr(prefix))
 
         # Create popup if needed
         if not self.autocomplete_popup:
@@ -198,12 +206,7 @@ class AdvancedText(tk.Frame):
             self.autocomplete_list.curselection()
         )
 
-        start = self.text.search(
-            r'\m\w+$',
-            tk.INSERT,
-            backwards=True,
-            regexp=True
-        )
+        start = self.text.index("insert wordstart")
 
         if start:
             self.text.delete(start, tk.INSERT)
@@ -218,13 +221,10 @@ class ResearchEditor(tk.Tk):
         super().__init__()
         self.title("TextEditor")
         self.geometry("1200x800")
-        
        
         self.file_map = {} 
-
         
         self.create_menus()
-
        
         self.create_toolbar()
 
