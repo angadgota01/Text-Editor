@@ -93,6 +93,23 @@ void trie_insert(const char* word) {
     curr->is_end = 1;
 }
 
+void read_and_insert_into_trie(const char *filename) {
+    FILE *file = fopen(filename, "r");
+    if (file == NULL) {
+        perror("Could not open file");
+        return;
+    }
+
+    char word[50];
+    while (fgets(word, sizeof(word), file)) {
+        // Remove the newline character at the end of the word, if any
+        word[strcspn(word, "\n")] = '\0';
+        trie_insert(word);  
+    }
+
+    fclose(file);
+}
+
 void dfs_collect(
     TrieNode* node,
     char* buffer,
@@ -131,6 +148,8 @@ EXPORT void init() {
     initStack(&undoStack);
     initStack(&redoStack);
     trie_init();
+    read_and_insert_into_trie("./c_ds/words.txt");
+
 }
 
 EXPORT void push_undo_state(const char* text) {
