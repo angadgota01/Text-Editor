@@ -71,6 +71,7 @@ char* pop(Stack* s) {
 // Trie Operations
 TrieNode* create_node() {
     TrieNode* node = (TrieNode*)calloc(1, sizeof(TrieNode));
+    node->is_end = 0;
     return node;
 }
 
@@ -108,6 +109,41 @@ void read_and_insert_into_trie(const char *filename) {
     }
 
     fclose(file);
+}
+
+void displayWordsHelper(TrieNode* node, char* str, int level, int* count, int n) {
+    // If the node is NULL, return
+    if (node == NULL) {
+        return;
+    }
+
+    // If this node marks the end of a word, print the word
+    if (node->is_end) {
+        str[level] = '\0';
+        printf("%s\n", str);
+        (*count)++;
+        if (*count >= n) {
+            return;  // Stop if we've displayed n words
+        }
+    }
+
+    // Recur for all the children
+    for (int i = 0; i < ALPHABET_SIZE; i++) {
+        if (node->children[i] != NULL) {
+            str[level] = i + 'a';  // Convert index to character
+            displayWordsHelper(node->children[i], str, level + 1, count, n);
+            if (*count >= n) {
+                return;  // Stop further recursion if n words are printed
+            }
+        }
+    }
+}
+
+// Function to display first n words in the Trie
+void displayWords(TrieNode* root, int n) {
+    char str[MAX_WORD_LEN];  
+    int count = 0;
+    displayWordsHelper(root, str, 0, &count, n);
 }
 
 void dfs_collect(
@@ -148,9 +184,19 @@ EXPORT void init() {
     initStack(&undoStack);
     initStack(&redoStack);
     trie_init();
-    read_and_insert_into_trie("./c_ds/words.txt");
 
+    // minimal dictionary (can be expanded / loaded from file)
+    // Revert this, load the words from words.txt
+    const char* words[] = {
+        "the","this","that","there","their","text","editor",
+        "research","undo","redo","file","save","open","python","program"
+    };
+
+    for (int i = 0; i < 14; i++)
+        trie_insert(words[i]);
+    displayWords(root, 14);
 }
+
 
 EXPORT void push_undo_state(const char* text) {
     if (!text) return;
@@ -197,7 +243,14 @@ EXPORT int autocomplete(
     const char* prefix,
     char suggestions[MAX_SUGGESTIONS][MAX_WORD_LEN]
 ) {
-    if (!root || !prefix || prefix[0] == '\0') return 0;
+    if (!root) {
+        fprintf(stderr, "FATAL: trie not initialized\n");
+        fflush(stderr);
+    }
+
+    printf("C Autocomplete function entered\n");
+    fflush(stdout);
+    if (!prefix || prefix[0] == '\0') return 0;
 
     TrieNode* curr = root;
     char buffer[MAX_WORD_LEN];
@@ -216,7 +269,8 @@ EXPORT int autocomplete(
         buffer[depth++] = prefix[i];
         curr = curr->children[idx];
     }
-
+    printf("Autocomplete has traversed the trie\n");
+    fflush(stdout);
     int count = 0;
     dfs_collect(curr, buffer, depth, suggestions, &count);
 

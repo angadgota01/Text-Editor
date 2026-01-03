@@ -143,7 +143,7 @@ class AdvancedText(tk.Frame):
 
     def show_autocomplete(self):
         prefix = self.get_current_word()
-        # print("ENTER show_autocomplete", prefix)
+        print("ENTER show_autocomplete", prefix)
 
         if len(prefix) < 2:
             self.hide_autocomplete()
@@ -152,6 +152,8 @@ class AdvancedText(tk.Frame):
         suggestions = ((c_char * 64) * 5)()
         count = backend.lib.autocomplete(prefix.encode(), suggestions)
         print("Count:", count)
+        for suggestion in suggestions:
+            print("Suggestion:", suggestion.value.decode())
 
         if count == 0:
             self.hide_autocomplete()
