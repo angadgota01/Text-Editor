@@ -215,6 +215,7 @@ class AdvancedText(tk.Frame):
             self.text.insert(start, selected)
 
         self.hide_autocomplete()
+        self.text.focus_set()
 
 
 
@@ -303,6 +304,8 @@ class ResearchEditor(tk.Tk):
 
        
         tk.Button(toolbar, text="Text Color", command=self.format_color, bg="#d9d9d9", relief=tk.FLAT).pack(side=tk.LEFT, padx=5, pady=5)
+        tk.Button(toolbar, text="Redo", command=self.edit_redo).pack(side = tk.RIGHT, padx = 5, pady = 5)
+        tk.Button(toolbar, text="Undo", command=self.edit_undo).pack(side = tk.RIGHT, padx = 5, pady = 5)
 
    
     def get_active_editor(self):
