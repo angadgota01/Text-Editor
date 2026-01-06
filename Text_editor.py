@@ -73,7 +73,7 @@ class AdvancedText(tk.Frame):
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-      
+        self.is_autocomplete_inserting = False
         self.text.tag_configure("bold", font=("Arial", 12, "bold"))
         self.text.tag_configure("italic", font=("Arial", 12, "italic"))
         self.text.tag_configure("underline", underline=True)
@@ -205,19 +205,34 @@ class AdvancedText(tk.Frame):
             self.autocomplete_list = None
     
     def apply_suggestion(self, event=None):
-        if not self.autocomplete_list.curselection():
+        if not self.autocomplete_list or not self.autocomplete_list.curselection():
             return
 
         selected = self.autocomplete_list.get(
             self.autocomplete_list.curselection()
         )
 
-        start = self.text.index("insert wordstart")
+        # Compute the start of the current word manually
+        index = self.text.index(tk.INSERT)
+        line, col = map(int, index.split('.'))
+        line_text = self.text.get(f"{line}.0", f"{line}.end")
 
-        if start:
-            self.text.delete(start, tk.INSERT)
-            self.text.insert(start, selected)
+        # Look backward from cursor to find start of word
+        pos = col - 1
+        while pos >= 0:
+            if not (line_text[pos].isalnum() or line_text[pos] == "_"):
+                break
+            pos -= 1
+        word_start_col = pos + 1
+        start_index = f"{line}.{word_start_col}"
 
+        # Replace the prefix with the selected suggestion
+        self.is_restoring = True
+        self.text.delete(start_index, tk.INSERT)
+        self.text.insert(start_index, selected)
+        self.is_restoring = False
+
+        # Hide popup and restore focus
         self.hide_autocomplete()
         self.text.focus_set()
 

@@ -162,7 +162,7 @@ EXPORT void push_undo_state(const char* text) {
     stack_push(&undoStack, text);
     stack_clear(&redoStack);
     printf("UNDO TOP: %d\n", undoStack.top);
-    printf("undo stack data: %s", undoStack.data[undoStack.top]);
+    printf("undo stack data: %s \n", undoStack.data[undoStack.top]);
 }
 
 EXPORT int perform_undo(const char* current, char* out) {
