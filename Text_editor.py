@@ -362,20 +362,21 @@ class ResearchEditor(tk.Tk):
 
         current_text = editor.get("1.0", tk.END).encode('utf-8')
         
-       
+        # Call perform_undo and get the result pointer
         result_ptr = backend.lib.perform_undo(current_text)
         
         if result_ptr:
             try:
-               
+                # Decode the result text from C memory and insert it into the editor
                 prev_text = cast(result_ptr, c_char_p).value.decode('utf-8')
                 
-                
+                # Replace the current content with the previous undo state
                 editor.delete("1.0", tk.END)
-                editor.insert("1.0", prev_text.rstrip('\n')) 
+                editor.insert("1.0", prev_text.rstrip('\n'))  # Remove extra newlines
                 
-               
+                # Free the memory used by the C function
                 backend.lib.free_mem(result_ptr)
+                
                 self.status_var.set("Undo successful.")
             except Exception as e:
                 print(f"Undo Error: {e}")
@@ -388,20 +389,29 @@ class ResearchEditor(tk.Tk):
         if not editor: return
 
         current_text = editor.get("1.0", tk.END).encode('utf-8')
+        
+        # Call perform_redo and get the result pointer
         result_ptr = backend.lib.perform_redo(current_text)
 
         if result_ptr:
             try:
+                # Decode the result text from C memory and insert it into the editor
                 next_text = cast(result_ptr, c_char_p).value.decode('utf-8')
+                
+                # Replace the current content with the next redo state
                 editor.delete("1.0", tk.END)
-                editor.insert("1.0", next_text.rstrip('\n'))
+                editor.insert("1.0", next_text.rstrip('\n'))  # Remove extra newlines
+                
+                # Free the memory used by the C function
                 backend.lib.free_mem(result_ptr)
+                
                 self.status_var.set("Redo successful.")
             except Exception as e:
                 print(f"Redo Error: {e}")
         else:
             self.status_var.set("Nothing to redo.")
         return "break"
+
 
     def format_text(self, tag_name):
         editor = self.get_active_editor()

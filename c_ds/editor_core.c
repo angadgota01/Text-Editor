@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <ctype.h>
 
-#define MAX_HISTORY 200 //this is to perform undo operation just 200 stack 
+#define MAX_HISTORY 200 // Number of undo stack states
 #define ALPHABET_SIZE 26
 #define MAX_WORD_LEN 64
 #define MAX_SUGGESTIONS 5
@@ -38,23 +38,11 @@ void clearStack(Stack* s) {
 }
 
 void push(Stack* s, const char* text) {
-    if (!text) return;
-
-    
-    if (s->top >= MAX_HISTORY - 1) {
-        if (s->data[0]) free(s->data[0]);
-        
-        for (int i = 0; i < s->top; i++) {
-            s->data[i] = s->data[i+1];
-        }
-        s->top--;
-    }
-
-    s->top++;
-    
-    s->data[s->top] = (char*)malloc(strlen(text) + 1);
-    if (s->data[s->top]) {
-        strcpy(s->data[s->top], text);
+    if (s->top < MAX_HISTORY - 1) {
+        s->top++;
+        s->data[s->top] = (char*)malloc(strlen(text) + 1);
+        if(s->data[s->top])
+            strcpy(s->data[s->top], text);
     }
 }
 
