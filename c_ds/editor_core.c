@@ -87,6 +87,24 @@ void trie_insert(const char* word) {
     cur->is_end = 1;
 }
 
+void trie_load_from_file(const char* filename) {
+    FILE* f = fopen(filename, "r");
+    if (!f) {
+        perror("Failed to open dictionary file");
+        return;
+    }
+
+    char line[MAX_WORD_LEN];
+    while (fgets(line, sizeof(line), f)) {
+        // Remove newline / carriage return
+        line[strcspn(line, "\r\n")] = '\0';
+        if (strlen(line) > 0)
+            trie_insert(line);
+    }
+
+    fclose(f);
+}
+
 void dfs_collect(
     TrieNode* node,
     char* buffer,
@@ -122,13 +140,7 @@ EXPORT void init() {
     stack_init(&redoStack);
     trie_init();
 
-    const char* words[] = {
-        "the","this","that","there","their","text","editor",
-        "research","undo","redo","file","save","open","python"
-    };
-
-    for (int i = 0; i < 14; i++)
-        trie_insert(words[i]);
+    trie_load_from_file("./c_ds/words.txt");
 }
 
 EXPORT void free_mem(void* ptr) {
