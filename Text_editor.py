@@ -48,6 +48,12 @@ class BackendManager:
             ]
             self.lib.autocomplete.restype = c_int
 
+            self.lib.autocorrect.argtypes = [
+                c_char_p,
+                (c_char * 64) * 5
+            ]
+            self.lib.autocorrect.restype = c_int
+
         except Exception as e:
             messagebox.showerror("Linker Error", f"Failed to load C functions: {e}")
             exit(1)
@@ -58,6 +64,7 @@ backend = BackendManager()
 class AdvancedText(tk.Frame):
     def __init__(self, master=None, **kwargs):
         super().__init__(master, **kwargs)
+
         
         
         self.linenumbers = tk.Text(self, width=5, padx=5, takefocus=0, border=0,
@@ -81,20 +88,41 @@ class AdvancedText(tk.Frame):
         self.text.bind('<KeyRelease>', self.on_change)
         self.text.bind('<Button-1>', self.on_click)
         self.text.bind('<MouseWheel>', self.sync_wheel)
+        # Bind Up/Down/Return for autocomplete navigation if needed, 
 
-        self.autocomplete_list = None
-        self.autocomplete_popup = None
+        self.text.bind('<Down>', self.focus_autocomplete)
+
+
+        self.autocomplete_list = tk.Listbox(self.text, height=5, width=30, bg="white", bd=1, relief=tk.SOLID)
+        self.autocomplete_list.bind("<ButtonRelease-1>", self.apply_suggestion)
+        self.autocomplete_list.bind("<Return>", self.apply_suggestion)
+        self.autocomplete_visible = False
+        
+        self.autocorrect_popup = None
+        self.autocorrect_label = None
         self.save_timer = None
         self.is_restoring = False
 
+    def focus_autocomplete(self, event):
+        if self.autocomplete_visible:
+            self.autocomplete_list.focus_set()
+            self.autocomplete_list.selection_set(0)
+            return "break"
+
+
     def sync_scroll(self, *args):
+        self.hide_autocomplete()
+        self.hide_autocorrect()
         self.text.yview(*args)
         self.linenumbers.yview(*args)
 
     def sync_wheel(self, event):
+        self.hide_autocomplete()
+        self.hide_autocorrect()
         self.text.yview_scroll(int(-1*(event.delta/120)), "units")
         self.linenumbers.yview_scroll(int(-1*(event.delta/120)), "units")
         return "break"
+
 
     def update_line_numbers(self):
         lines = self.text.get('1.0', tk.END).count('\n')
@@ -109,13 +137,26 @@ class AdvancedText(tk.Frame):
 
     def on_click(self, event):
         self.update_line_numbers()
+        self.hide_autocomplete()
+        self.hide_autocorrect()
 
     def on_change(self, event=None):
         if self.is_restoring:
             return
         
         self.update_line_numbers()
+
+        # Explicitly hide on separators to ensure UI clears
+        # We classify space, return, tab, escape, and punctuation (excluding BackSpace) as terminators
+        if event and (event.keysym in ("space", "Return", "Tab", "Escape") or 
+                      (event.char and not event.char.isalnum() and event.char != "_" and event.keysym != "BackSpace")):
+            self.hide_autocomplete()
+            self.hide_autocorrect()
+            return
+        
         self.show_autocomplete()
+        self.show_autocorrect()
+
 
         if self.save_timer:
             self.after_cancel(self.save_timer)
@@ -147,77 +188,52 @@ class AdvancedText(tk.Frame):
 
     def show_autocomplete(self):
         prefix = self.get_current_word()
-        #print("ENTER show_autocomplete", prefix)
-
         if len(prefix) < 2:
             self.hide_autocomplete()
             return
 
         suggestions = ((c_char * 64) * 5)()
         count = backend.lib.autocomplete(prefix.encode(), suggestions)
-        #print("Count:", count)
-    #    for suggestion in suggestions:
-    #        print("Suggestion:", suggestion.value.decode())
 
         if count == 0:
             self.hide_autocomplete()
             return
 
-        #print("PREFIX:", repr(prefix))
-
-        # Create popup if needed
-        if not self.autocomplete_popup:
-            self.autocomplete_popup = tk.Toplevel(self)
-            self.autocomplete_popup.wm_overrideredirect(True)
-            self.autocomplete_popup.attributes("-topmost", True)
-
-            self.autocomplete_list = tk.Listbox(
-                self.autocomplete_popup,
-                height=5,
-                width=25
-            )
-            self.autocomplete_list.pack()
-            self.autocomplete_list.bind("<ButtonRelease-1>", self.apply_suggestion)
-            self.autocomplete_list.bind("<Return>", self.apply_suggestion)
-
         self.autocomplete_list.delete(0, tk.END)
         for i in range(count):
-            self.autocomplete_list.insert(
-                tk.END,
-                suggestions[i].value.decode()
-            )
+            self.autocomplete_list.insert(tk.END, suggestions[i].value.decode())
 
-        # Calculate screen coordinates 
         bbox = self.text.bbox(tk.INSERT)
         if not bbox:
             return
 
         x, y, w, h = bbox
-        abs_x = self.text.winfo_rootx() + x
-        abs_y = self.text.winfo_rooty() + y + h
+        
+        # Place relative to the text widget content
+        # bbox returns standard coordinates inside the widget.
+        self.autocomplete_list.place(x=x, y=y+h)
+        self.autocomplete_list.lift()
+        self.autocomplete_visible = True
 
-        self.autocomplete_popup.geometry(f"+{abs_x}+{abs_y}")
-    
     def hide_autocomplete(self):
-        if self.autocomplete_popup:
-            self.autocomplete_popup.destroy()
-            self.autocomplete_popup = None
-            self.autocomplete_list = None
+        if self.autocomplete_visible:
+            self.autocomplete_list.place_forget()
+            self.autocomplete_visible = False
     
     def apply_suggestion(self, event=None):
-        if not self.autocomplete_list or not self.autocomplete_list.curselection():
+        if not self.autocomplete_visible:
+            return
+            
+        selection = self.autocomplete_list.curselection()
+        if not selection:
             return
 
-        selected = self.autocomplete_list.get(
-            self.autocomplete_list.curselection()
-        )
+        selected = self.autocomplete_list.get(selection[0])
 
-        # Compute the start of the current word manually
         index = self.text.index(tk.INSERT)
         line, col = map(int, index.split('.'))
         line_text = self.text.get(f"{line}.0", f"{line}.end")
 
-        # Look backward from cursor to find start of word
         pos = col - 1
         while pos >= 0:
             if not (line_text[pos].isalnum() or line_text[pos] == "_"):
@@ -226,15 +242,98 @@ class AdvancedText(tk.Frame):
         word_start_col = pos + 1
         start_index = f"{line}.{word_start_col}"
 
-        # Replace the prefix with the selected suggestion
         self.is_restoring = True
         self.text.delete(start_index, tk.INSERT)
         self.text.insert(start_index, selected)
         self.is_restoring = False
 
-        # Hide popup and restore focus
         self.hide_autocomplete()
         self.text.focus_set()
+        return "break"
+
+
+    def show_autocorrect(self):
+        prefix = self.get_current_word()
+        if len(prefix) < 2:
+            self.hide_autocorrect()
+            return
+        
+        # If autocomplete is showing, we might want to prioritize it or show autocorrect elsewhere
+        # usage: check if word exists or has close matches
+        suggestions = ((c_char * 64) * 5)()
+        count = backend.lib.autocorrect(prefix.encode(), suggestions)
+        
+        if count == 0:
+            self.hide_autocorrect()
+            return
+
+        # Pick the first suggestion
+        suggestion = suggestions[0].value.decode()
+        
+        if not self.autocorrect_popup:
+            self.autocorrect_popup = tk.Toplevel(self)
+            self.autocorrect_popup.wm_overrideredirect(True)
+            self.autocorrect_popup.attributes("-topmost", True)
+            self.autocorrect_popup.config(bg="#ffffe0", bd=1, relief=tk.SOLID) # Light yellow
+            
+            self.autocorrect_label = tk.Label(
+                self.autocorrect_popup, 
+                text="", 
+                bg="#ffffe0", 
+                fg="black",
+                font=("Arial", 10, "italic"),
+                padx=5, pady=2,
+                cursor="hand2"
+            )
+            self.autocorrect_label.pack()
+            self.autocorrect_label.bind("<Button-1>", lambda e: self.apply_correction(suggestion))
+
+        self.autocorrect_label.config(text=f"Did you mean {suggestion}?")
+        self.autocorrect_label.bind("<Button-1>", lambda e: self.apply_correction(suggestion))
+
+        # Position below the cursor (below autocomplete if possible, but let's just put it slightly offset)
+        bbox = self.text.bbox(tk.INSERT)
+        if not bbox:
+            return
+
+        x, y, w, h = bbox
+        abs_x = self.text.winfo_rootx() + x
+        abs_y = self.text.winfo_rooty() + y + h + 5 # Slightly lower
+        
+        # If autocomplete is present, maybe move it down further? 
+        # For now, let's overlap or place it next to it. 
+        # Actually user requirement: "display a small popup".
+        
+        self.autocorrect_popup.geometry(f"+{abs_x}+{abs_y}")
+
+
+    def hide_autocorrect(self):
+        if self.autocorrect_popup:
+            self.autocorrect_popup.destroy()
+            self.autocorrect_popup = None
+            self.autocorrect_label = None
+
+    def apply_correction(self, correction):
+        # Similar to apply_suggestion but for the determined correction
+        
+        index = self.text.index(tk.INSERT)
+        line, col = map(int, index.split('.'))
+        line_text = self.text.get(f"{line}.0", f"{line}.end")
+
+        pos = col - 1
+        while pos >= 0:
+            if not (line_text[pos].isalnum() or line_text[pos] == "_"):
+                break
+            pos -= 1
+        word_start_col = pos + 1
+        start_index = f"{line}.{word_start_col}"
+
+        self.is_restoring = True
+        self.text.delete(start_index, tk.INSERT)
+        self.text.insert(start_index, correction)
+        self.is_restoring = False
+
+        self.hide_autocorrect()
 
 
 
