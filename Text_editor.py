@@ -31,14 +31,14 @@ class BackendManager:
         lib_path = next((p for p in paths if os.path.exists(p)), None)
 
         if not lib_path:
-            messagebox.showerror("Error", "Library not found!")
+            messagebox.showerror("Error", "C Library not found! Compile editor_core.c first.")
             exit(1)
 
         try:
             self.lib = CDLL(lib_path)
             self.lib.init()
         
-            # Basic
+            # Basic functions
             self.lib.push_undo_state.argtypes = [c_char_p]
             self.lib.perform_undo.argtypes = [c_char_p, c_char_p]
             self.lib.perform_undo.restype = c_int
@@ -65,21 +65,16 @@ class BackendManager:
             # Navigation
             self.lib.get_line_position.argtypes = [c_char_p, c_int, POINTER(c_int)]
             self.lib.get_line_position.restype = c_int
-            
-            # Advanced
             self.lib.calculate_indent.argtypes = [c_char_p, c_int]
             self.lib.calculate_indent.restype = c_int
             
+            # Advanced editing
             self.lib.duplicate_line.argtypes = [c_char_p, c_int, c_int]
             self.lib.sort_lines.argtypes = [c_char_p, c_int]
-            
             self.lib.analyze_word_frequency.argtypes = [c_char_p]
             self.lib.analyze_word_frequency.restype = c_int
-            
             self.lib.get_word_frequency.argtypes = [c_int, c_char_p, POINTER(c_int)]
             self.lib.get_word_frequency.restype = c_int
-            
-            # New features
             self.lib.toggle_comment.argtypes = [c_char_p, c_int, c_int]
             self.lib.trim_trailing_whitespace.argtypes = [c_char_p, c_int]
             self.lib.convert_case.argtypes = [c_char_p, c_int, c_int, c_int]
@@ -96,7 +91,7 @@ class BackendManager:
             self.lib.autocorrect_text.restype = c_int
 
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to load: {e}")
+            messagebox.showerror("Error", f"Failed to load C library: {e}")
             exit(1)
 
 
@@ -104,117 +99,54 @@ backend = BackendManager()
 
 
 # =============================================================================
-#  AUTO-CORRECT DIALOG
-# =============================================================================
-class AutoCorrectDialog(tk.Toplevel):
-    def __init__(self, parent, word, editor):
-        super().__init__(parent)
-        self.editor = editor
-        self.word = word
-        self.title("Auto-Correct Suggestions")
-        self.geometry("350x300")
-        self.transient(parent)
-        
-        tk.Label(self, text=f'Misspelled word: "{word}"', 
-                font=("Arial", 11, "bold"), pady=10, fg="red").pack()
-        
-        tk.Label(self, text="Suggestions:", font=("Arial", 10)).pack(anchor="w", padx=10)
-        
-        frame = tk.Frame(self)
-        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        
-        scrollbar = tk.Scrollbar(frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        self.suggestions_list = tk.Listbox(frame, yscrollcommand=scrollbar.set,
-                                          font=("Arial", 11), height=8)
-        self.suggestions_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=self.suggestions_list.yview)
-        
-        self.suggestions_list.bind("<Double-1>", self.replace_word)
-        
-        # Get suggestions
-        suggestions = ((c_char * 64) * 5)()
-        count = backend.lib.autocorrect(word.encode(), suggestions)
-        
-        if count == 0:
-            self.suggestions_list.insert(tk.END, "No suggestions found")
-        else:
-            for i in range(count):
-                self.suggestions_list.insert(tk.END, suggestions[i].value.decode())
-        
-        # Buttons
-        btn_frame = tk.Frame(self)
-        btn_frame.pack(fill=tk.X, padx=10, pady=10)
-        
-        tk.Button(btn_frame, text="Replace", command=self.replace_word,
-                 bg="#4CAF50", fg="white", relief=tk.FLAT, width=10).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Ignore", command=self.destroy,
-                 bg="#FF5722", fg="white", relief=tk.FLAT, width=10).pack(side=tk.LEFT, padx=5)
-    
-    def replace_word(self, event=None):
-        selection = self.suggestions_list.curselection()
-        if not selection:
-            return
-        
-        replacement = self.suggestions_list.get(selection[0])
-        if replacement == "No suggestions found":
-            return
-        
-        cursor_pos = self.editor.index(tk.INSERT)
-        line, col = map(int, cursor_pos.split('.'))
-        line_text = self.editor.get(f"{line}.0", f"{line}.end")
-        
-        start_col = col
-        while start_col > 0 and (line_text[start_col-1].isalnum() or line_text[start_col-1] == '_'):
-            start_col -= 1
-        
-        end_col = col
-        while end_col < len(line_text) and (line_text[end_col].isalnum() or line_text[end_col] == '_'):
-            end_col += 1
-        
-        self.editor.delete(f"{line}.{start_col}", f"{line}.{end_col}")
-        self.editor.insert(f"{line}.{start_col}", replacement)
-        
-        self.destroy()
-
-
-# =============================================================================
-#  FIND DIALOG
+#  DIALOGS
 # =============================================================================
 class FindReplaceDialog(tk.Toplevel):
     def __init__(self, parent, editor):
         super().__init__(parent)
         self.editor = editor
         self.title("Find & Replace")
-        self.geometry("500x400")
+        self.geometry("550x450")
         self.transient(parent)
+        self.configure(bg="#f0f0f0")
         
-        find_frame = tk.Frame(self, pady=10)
-        find_frame.pack(fill=tk.X, padx=10)
+        # Find section
+        find_frame = tk.Frame(self, bg="#f0f0f0", pady=10)
+        find_frame.pack(fill=tk.X, padx=15)
         
-        tk.Label(find_frame, text="Find:", font=("Arial", 10, "bold")).pack(anchor="w")
+        tk.Label(find_frame, text="Find:", font=("Segoe UI", 10, "bold"), bg="#f0f0f0").pack(anchor="w")
         self.find_var = tk.StringVar()
-        find_entry = tk.Entry(find_frame, textvariable=self.find_var, font=("Arial", 11))
+        find_entry = tk.Entry(find_frame, textvariable=self.find_var, font=("Segoe UI", 11), bd=2, relief=tk.GROOVE)
         find_entry.pack(fill=tk.X, pady=5)
         find_entry.focus_set()
         
-        btn_frame = tk.Frame(find_frame)
-        btn_frame.pack(fill=tk.X)
+        # Buttons
+        btn_frame = tk.Frame(find_frame, bg="#f0f0f0")
+        btn_frame.pack(fill=tk.X, pady=5)
+        
         tk.Button(btn_frame, text="🔍 Find All", command=self.find_all,
-                 bg="#2196F3", fg="white", relief=tk.FLAT).pack(side=tk.LEFT, padx=2)
-        tk.Button(btn_frame, text="Next", command=self.find_next).pack(side=tk.LEFT, padx=2)
+                 bg="#2196F3", fg="white", font=("Segoe UI", 9, "bold"), 
+                 relief=tk.FLAT, padx=15, pady=5, cursor="hand2").pack(side=tk.LEFT, padx=3)
         
-        results_frame = tk.Frame(self)
-        results_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        tk.Button(btn_frame, text="⬇ Next", command=self.find_next,
+                 bg="#4CAF50", fg="white", font=("Segoe UI", 9, "bold"), 
+                 relief=tk.FLAT, padx=15, pady=5, cursor="hand2").pack(side=tk.LEFT, padx=3)
         
-        tk.Label(results_frame, text="Results:", font=("Arial", 9, "bold")).pack(anchor="w")
+        # Results section
+        results_frame = tk.Frame(self, bg="#f0f0f0")
+        results_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
         
-        scrollbar = tk.Scrollbar(results_frame)
+        tk.Label(results_frame, text="Results:", font=("Segoe UI", 9, "bold"), 
+                bg="#f0f0f0").pack(anchor="w", pady=(0, 5))
+        
+        scroll_frame = tk.Frame(results_frame)
+        scroll_frame.pack(fill=tk.BOTH, expand=True)
+        
+        scrollbar = tk.Scrollbar(scroll_frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        self.results_list = tk.Listbox(results_frame, yscrollcommand=scrollbar.set,
-                                       font=("Consolas", 9), height=10)
+        self.results_list = tk.Listbox(scroll_frame, yscrollcommand=scrollbar.set,
+                                       font=("Consolas", 9), height=12, bd=2, relief=tk.GROOVE)
         self.results_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.results_list.yview)
         
@@ -222,9 +154,13 @@ class FindReplaceDialog(tk.Toplevel):
         
         self.current_result = 0
         
+        # Bind Enter key
+        find_entry.bind("<Return>", lambda e: self.find_all())
+        
     def find_all(self):
         query = self.find_var.get()
         if not query:
+            messagebox.showwarning("Find", "Please enter search text")
             return
         
         self.results_list.delete(0, tk.END)
@@ -233,7 +169,8 @@ class FindReplaceDialog(tk.Toplevel):
         count = backend.lib.find_text(content, query.encode())
         
         if count == 0:
-            self.results_list.insert(tk.END, "No results found")
+            self.results_list.insert(tk.END, "❌ No results found")
+            messagebox.showinfo("Find", f"'{query}' not found")
             return
         
         for i in range(count):
@@ -249,9 +186,10 @@ class FindReplaceDialog(tk.Toplevel):
         self.current_result = 0
         if count > 0:
             self.jump_to_index(0)
+            messagebox.showinfo("Find", f"Found {count} occurrence(s)")
     
     def find_next(self):
-        if self.results_list.size() == 0:
+        if self.results_list.size() == 0 or self.results_list.get(0).startswith("❌"):
             self.find_all()
             return
         
@@ -285,43 +223,142 @@ class FindReplaceDialog(tk.Toplevel):
             self.jump_to_index(self.current_result)
 
 
-# =============================================================================
-#  WORD FREQUENCY DIALOG
-# =============================================================================
 class WordFrequencyDialog(tk.Toplevel):
     def __init__(self, parent, content):
         super().__init__(parent)
-        self.title("Word Frequency Analysis")
-        self.geometry("400x500")
+        self.title("📊 Word Frequency Analysis")
+        self.geometry("450x550")
         self.transient(parent)
+        self.configure(bg="#f5f5f5")
         
-        tk.Label(self, text="Most Common Words", font=("Arial", 12, "bold"), 
-                pady=10).pack()
+        # Header
+        header = tk.Frame(self, bg="#2196F3", height=60)
+        header.pack(fill=tk.X)
+        header.pack_propagate(False)
         
-        frame = tk.Frame(self)
-        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        tk.Label(header, text="📊 Most Common Words", 
+                font=("Segoe UI", 14, "bold"), bg="#2196F3", fg="white").pack(pady=15)
+        
+        # Content frame
+        frame = tk.Frame(self, bg="#f5f5f5")
+        frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
         
         scrollbar = tk.Scrollbar(frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         self.word_list = tk.Listbox(frame, yscrollcommand=scrollbar.set,
-                                    font=("Consolas", 10), height=20)
+                                    font=("Consolas", 10), height=20, bd=0, 
+                                    relief=tk.FLAT, bg="white")
         self.word_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.word_list.yview)
         
+        # Analyze
         count = backend.lib.analyze_word_frequency(content.encode())
         
-        for i in range(min(count, 50)):
-            word = create_string_buffer(64)
-            freq = c_int()
-            
-            if backend.lib.get_word_frequency(i, word, byref(freq)):
-                display = f"{word.value.decode():<20} : {freq.value:>3} times"
-                self.word_list.insert(tk.END, display)
+        if count == 0:
+            self.word_list.insert(tk.END, "No words found")
+        else:
+            for i in range(min(count, 50)):
+                word = create_string_buffer(64)
+                freq = c_int()
+                
+                if backend.lib.get_word_frequency(i, word, byref(freq)):
+                    bar = "█" * min(freq.value, 30)
+                    display = f"{i+1:2}. {word.value.decode():<15} {bar} {freq.value}"
+                    self.word_list.insert(tk.END, display)
+
+
+class AutoCorrectDialog(tk.Toplevel):
+    def __init__(self, parent, word, editor):
+        super().__init__(parent)
+        self.editor = editor
+        self.word = word
+        self.title("✓ Spelling Suggestions")
+        self.geometry("380x320")
+        self.transient(parent)
+        self.configure(bg="#fff")
+        
+        # Header
+        header = tk.Frame(self, bg="#9C27B0", height=50)
+        header.pack(fill=tk.X)
+        header.pack_propagate(False)
+        
+        tk.Label(header, text=f'Misspelled: "{word}"', bg="#9C27B0", fg="white",
+                font=("Segoe UI", 11, "bold")).pack(pady=12)
+        
+        # Suggestions
+        tk.Label(self, text="Suggestions:", font=("Segoe UI", 10, "bold"), 
+                bg="#fff", fg="#333").pack(anchor="w", padx=15, pady=(10, 5))
+        
+        frame = tk.Frame(self, bg="#fff")
+        frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
+        
+        scrollbar = tk.Scrollbar(frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.suggestions_list = tk.Listbox(frame, yscrollcommand=scrollbar.set,
+                                          font=("Segoe UI", 11), height=8, bd=1, 
+                                          relief=tk.SOLID, selectbackground="#E1BEE7")
+        self.suggestions_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self.suggestions_list.yview)
+        
+        self.suggestions_list.bind("<Double-1>", self.replace_word)
+        
+        # Get suggestions
+        suggestions = ((c_char * 64) * 5)()
+        count = backend.lib.autocorrect(word.encode(), suggestions)
+        
+        if count == 0:
+            self.suggestions_list.insert(tk.END, "❌ No suggestions found")
+        else:
+            for i in range(count):
+                self.suggestions_list.insert(tk.END, f"✓ {suggestions[i].value.decode()}")
+        
+        # Buttons
+        btn_frame = tk.Frame(self, bg="#fff")
+        btn_frame.pack(fill=tk.X, padx=15, pady=15)
+        
+        tk.Button(btn_frame, text="✓ Replace", command=self.replace_word,
+                 bg="#4CAF50", fg="white", font=("Segoe UI", 9, "bold"), 
+                 relief=tk.FLAT, padx=20, pady=8, cursor="hand2").pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(btn_frame, text="✕ Ignore", command=self.destroy,
+                 bg="#FF5722", fg="white", font=("Segoe UI", 9, "bold"), 
+                 relief=tk.FLAT, padx=20, pady=8, cursor="hand2").pack(side=tk.LEFT, padx=5)
+    
+    def replace_word(self, event=None):
+        selection = self.suggestions_list.curselection()
+        if not selection:
+            return
+        
+        replacement = self.suggestions_list.get(selection[0])
+        if "No suggestions" in replacement:
+            return
+        
+        # Remove the "✓ " prefix
+        replacement = replacement.replace("✓ ", "")
+        
+        cursor_pos = self.editor.index(tk.INSERT)
+        line, col = map(int, cursor_pos.split('.'))
+        line_text = self.editor.get(f"{line}.0", f"{line}.end")
+        
+        # Find word boundaries
+        start_col = col
+        while start_col > 0 and (line_text[start_col-1].isalnum() or line_text[start_col-1] == '_'):
+            start_col -= 1
+        
+        end_col = col
+        while end_col < len(line_text) and (line_text[end_col].isalnum() or line_text[end_col] == '_'):
+            end_col += 1
+        
+        self.editor.delete(f"{line}.{start_col}", f"{line}.{end_col}")
+        self.editor.insert(f"{line}.{start_col}", replacement)
+        
+        self.destroy()
 
 
 # =============================================================================
-#  EDITOR
+#  SMART EDITOR WIDGET
 # =============================================================================
 class SmartEditor(tk.Frame):
     def __init__(self, master=None, **kwargs):
@@ -331,8 +368,8 @@ class SmartEditor(tk.Frame):
                                    background='#f5f5f5', foreground='#666', 
                                    state='disabled', font=("Consolas", 11))
         
-        self.text = tk.Text(self, wrap=tk.WORD, undo=False, font=("Arial", 12), 
-                           padx=10, pady=5)
+        self.text = tk.Text(self, wrap=tk.WORD, undo=False, font=("Consolas", 11), 
+                           padx=10, pady=5, insertwidth=2)
         
         self.scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self.sync_scroll)
         self.text.configure(yscrollcommand=self.scrollbar.set)
@@ -341,8 +378,8 @@ class SmartEditor(tk.Frame):
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.text.tag_configure("bold", font=("Arial", 12, "bold"))
-        self.text.tag_configure("italic", font=("Arial", 12, "italic"))
+        self.text.tag_configure("bold", font=("Consolas", 11, "bold"))
+        self.text.tag_configure("italic", font=("Consolas", 11, "italic"))
         self.text.tag_configure("underline", underline=True)
 
         self.text.bind('<KeyRelease>', self.on_change)
@@ -392,7 +429,7 @@ class SmartEditor(tk.Frame):
         
         self.update_line_numbers()
         
-        # Check if spacebar was pressed
+        # Spacebar triggers autocorrect
         if event and event.keysym == "space":
             self.hide_autocomplete()
             
@@ -425,8 +462,9 @@ class SmartEditor(tk.Frame):
             self.save_timer = self.after(500, self.push_state)
             return
         
-        if event and event.keysym in ("Return", "Tab", "Escape", "space"):
+        if event and event.keysym in ("Return", "Tab", "Escape"):
             self.hide_autocomplete()
+            self.hide_autocorrect()
             if self.save_timer:
                 self.after_cancel(self.save_timer)
             self.save_timer = self.after(500, self.push_state)
@@ -470,7 +508,8 @@ class SmartEditor(tk.Frame):
             self.autocomplete_list.destroy()
         
         self.autocomplete_list = tk.Listbox(self.text, height=5, width=30, 
-                                           bg="white", bd=1, relief=tk.SOLID)
+                                           bg="white", bd=1, relief=tk.SOLID,
+                                           selectbackground="#e3f2fd")
         self.autocomplete_list.bind("<ButtonRelease-1>", self.apply_suggestion)
         self.autocomplete_list.bind("<Return>", self.apply_suggestion)
         
@@ -530,25 +569,26 @@ class SmartEditor(tk.Frame):
             self.autocorrect_popup = tk.Toplevel(self)
             self.autocorrect_popup.wm_overrideredirect(True)
             self.autocorrect_popup.attributes("-topmost", True)
-            self.autocorrect_popup.config(bg="#ffffe0", bd=1, relief=tk.SOLID)
+            self.autocorrect_popup.config(bg="#fffacd", bd=2, relief=tk.SOLID)
         
         for widget in self.autocorrect_popup.winfo_children():
             widget.destroy()
 
         limit = min(count, 2)
         
-        header = tk.Label(self.autocorrect_popup, text="Did you mean?", bg="#ffffe0", font=("Arial", 8, "bold"))
-        header.pack(anchor="w", padx=2)
+        header = tk.Label(self.autocorrect_popup, text="Did you mean?", 
+                         bg="#fffacd", font=("Segoe UI", 8, "bold"))
+        header.pack(anchor="w", padx=5, pady=2)
 
         for i in range(limit):
             sugg = suggestions[i].value.decode()
             lbl = tk.Label(
                 self.autocorrect_popup, 
-                text=sugg, 
-                bg="#ffffe0", 
-                fg="blue",
-                font=("Arial", 10, "underline"),
-                padx=5, pady=1,
+                text=f"✓ {sugg}", 
+                bg="#fffacd", 
+                fg="#0066cc",
+                font=("Segoe UI", 10, "underline"),
+                padx=5, pady=2,
                 cursor="hand2"
             )
             lbl.pack(anchor="w")
@@ -590,13 +630,13 @@ class SmartEditor(tk.Frame):
 
 
 # =============================================================================
-#  MAIN APP
+#  MAIN APPLICATION
 # =============================================================================
-class TextEditor(tk.Tk):
+class SmartTextEditor(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Advanced Smart Text Editor")
-        self.geometry("1100x750")
+        self.title("🚀 Smart Text Editor - Advanced Edition")
+        self.geometry("1200x750")
         
         self.file_map = {} 
         self.current_theme = "light"
@@ -607,123 +647,171 @@ class TextEditor(tk.Tk):
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
+        # Status bar
         status_frame = tk.Frame(self, bd=1, relief=tk.SUNKEN)
         status_frame.pack(side=tk.BOTTOM, fill=tk.X)
         
         self.status_var = tk.StringVar(value="Ready")
-        tk.Label(status_frame, textvariable=self.status_var, anchor=tk.W, padx=10).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        tk.Label(status_frame, textvariable=self.status_var, anchor=tk.W, 
+                padx=10, font=("Segoe UI", 9)).pack(side=tk.LEFT, fill=tk.X, expand=True)
         
         self.stats_var = tk.StringVar(value="Lines: 0 | Words: 0 | Chars: 0")
-        tk.Label(status_frame, textvariable=self.stats_var, anchor=tk.E, padx=10, 
-                font=("Arial", 9), fg="#666").pack(side=tk.RIGHT)
+        tk.Label(status_frame, textvariable=self.stats_var, anchor=tk.E, 
+                padx=10, font=("Segoe UI", 9), fg="#666").pack(side=tk.RIGHT)
         
-        # Shortcuts
+        # ==================== KEYBOARD SHORTCUTS ====================
+        # File operations
         self.bind("<Control-n>", lambda e: self.file_new())
         self.bind("<Control-o>", lambda e: self.file_open())
         self.bind("<Control-s>", lambda e: self.file_save())
+        self.bind("<Control-Shift-S>", lambda e: self.file_save_as())
+        self.bind("<Control-w>", lambda e: self.close_tab())
+        
+        # Edit operations
         self.bind("<Control-z>", self.edit_undo)
         self.bind("<Control-y>", self.edit_redo)
+        self.bind("<Control-Shift-Z>", self.edit_redo)  # Alternative redo
+        
+        # Find & Navigation
         self.bind("<Control-f>", lambda e: self.open_find())
         self.bind("<Control-g>", lambda e: self.goto_line())
-        self.bind("<Control-d>", lambda e: self.duplicate_line())
-        self.bind("<Control-slash>", lambda e: self.toggle_comment())
-        self.bind("<Alt-Up>", lambda e: self.move_line_up())
-        self.bind("<Alt-Down>", lambda e: self.move_line_down())
+        self.bind("<F3>", lambda e: self.open_find())
+        
+        # Text formatting
         self.bind("<Control-b>", lambda e: self.format_text("bold"))
         self.bind("<Control-i>", lambda e: self.format_text("italic"))
         self.bind("<Control-u>", lambda e: self.format_text("underline"))
-        self.bind("<F7>", lambda e: self.check_word_spelling())
         
+        # Advanced editing
+        self.bind("<Control-d>", lambda e: self.duplicate_line())
+        self.bind("<Control-slash>", lambda e: self.toggle_comment())
+        self.bind("<Control-l>", lambda e: self.goto_line())
+        
+        # Line movement
+        self.bind("<Alt-Up>", lambda e: self.move_line_up())
+        self.bind("<Alt-Down>", lambda e: self.move_line_down())
+        
+        # Case conversion
+        self.bind("<Control-Shift-U>", lambda e: self.convert_to_uppercase())
+        self.bind("<Control-Shift-L>", lambda e: self.convert_to_lowercase())
+        
+        # Tools
+        self.bind("<F7>", lambda e: self.check_word_spelling())
+        self.bind("<Control-Shift-F>", lambda e: self.show_word_frequency())
+        self.bind("<Control-Shift-S>", lambda e: self.show_statistics())
+        
+        # Theme toggle
+        self.bind("<F9>", lambda e: self.toggle_theme())
+        
+        # Select all
+        self.bind("<Control-a>", self.select_all)
+        
+        # Update stats every second
         self.after(1000, self.update_statistics)
         
         self.apply_theme("light")
         self.file_new()
     
     def create_menus(self):
-        menubar = tk.Menu(self)
+        menubar = tk.Menu(self, font=("Segoe UI", 9))
         
-        file_menu = tk.Menu(menubar, tearoff=0)
-        file_menu.add_command(label="New", accelerator="Ctrl+N", command=self.file_new)
-        file_menu.add_command(label="Open", accelerator="Ctrl+O", command=self.file_open)
-        file_menu.add_command(label="Save", accelerator="Ctrl+S", command=self.file_save)
+        # FILE MENU
+        file_menu = tk.Menu(menubar, tearoff=0, font=("Segoe UI", 9))
+        file_menu.add_command(label="📄 New", accelerator="Ctrl+N", command=self.file_new)
+        file_menu.add_command(label="📂 Open", accelerator="Ctrl+O", command=self.file_open)
+        file_menu.add_command(label="💾 Save", accelerator="Ctrl+S", command=self.file_save)
+        file_menu.add_command(label="💾 Save As", accelerator="Ctrl+Shift+S", command=self.file_save_as)
         file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.quit)
+        file_menu.add_command(label="✕ Close Tab", accelerator="Ctrl+W", command=self.close_tab)
+        file_menu.add_command(label="❌ Exit", command=self.quit)
         menubar.add_cascade(label="File", menu=file_menu)
         
-        edit_menu = tk.Menu(menubar, tearoff=0)
-        edit_menu.add_command(label="Undo", accelerator="Ctrl+Z", command=self.edit_undo)
-        edit_menu.add_command(label="Redo", accelerator="Ctrl+Y", command=self.edit_redo)
+        # EDIT MENU
+        edit_menu = tk.Menu(menubar, tearoff=0, font=("Segoe UI", 9))
+        edit_menu.add_command(label="↶ Undo", accelerator="Ctrl+Z", command=self.edit_undo)
+        edit_menu.add_command(label="↷ Redo", accelerator="Ctrl+Y", command=self.edit_redo)
         edit_menu.add_separator()
-        edit_menu.add_command(label="Find", accelerator="Ctrl+F", command=self.open_find)
-        edit_menu.add_command(label="Go to Line", accelerator="Ctrl+G", command=self.goto_line)
-        edit_menu.add_command(label="Duplicate Line", accelerator="Ctrl+D", command=self.duplicate_line)
+        edit_menu.add_command(label="🔍 Find", accelerator="Ctrl+F", command=self.open_find)
+        edit_menu.add_command(label="➜ Go to Line", accelerator="Ctrl+G", command=self.goto_line)
         edit_menu.add_separator()
-        edit_menu.add_command(label="Toggle Comment", accelerator="Ctrl+/", command=self.toggle_comment)
-        edit_menu.add_command(label="Move Line Up", accelerator="Alt+Up", command=self.move_line_up)
-        edit_menu.add_command(label="Move Line Down", accelerator="Alt+Down", command=self.move_line_down)
+        edit_menu.add_command(label="📋 Duplicate Line", accelerator="Ctrl+D", command=self.duplicate_line)
+        edit_menu.add_command(label="💬 Toggle Comment", accelerator="Ctrl+/", command=self.toggle_comment)
+        edit_menu.add_command(label="⬆ Move Line Up", accelerator="Alt+↑", command=self.move_line_up)
+        edit_menu.add_command(label="⬇ Move Line Down", accelerator="Alt+↓", command=self.move_line_down)
         edit_menu.add_separator()
-        edit_menu.add_command(label="UPPERCASE", command=self.convert_to_uppercase)
-        edit_menu.add_command(label="lowercase", command=self.convert_to_lowercase)
-        edit_menu.add_command(label="Sort Lines", command=self.sort_lines)
-        edit_menu.add_command(label="Trim Whitespace", command=self.trim_whitespace)
-        edit_menu.add_command(label="Remove Empty Lines", command=self.remove_empty_lines)
+        edit_menu.add_command(label="🔠 UPPERCASE", accelerator="Ctrl+Shift+U", command=self.convert_to_uppercase)
+        edit_menu.add_command(label="🔡 lowercase", accelerator="Ctrl+Shift+L", command=self.convert_to_lowercase)
+        edit_menu.add_command(label="📊 Sort Lines", command=self.sort_lines)
+        edit_menu.add_command(label="✂ Trim Whitespace", command=self.trim_whitespace)
+        edit_menu.add_command(label="🗑 Remove Empty Lines", command=self.remove_empty_lines)
         edit_menu.add_separator()
-        edit_menu.add_command(label="Check Spelling", accelerator="F7", command=self.check_word_spelling)
-        edit_menu.add_command(label="Auto-Correct Document", command=self.autocorrect_document)
+        edit_menu.add_command(label="✓ Check Spelling", accelerator="F7", command=self.check_word_spelling)
+        edit_menu.add_command(label="✓ Auto-Correct All", command=self.autocorrect_document)
         menubar.add_cascade(label="Edit", menu=edit_menu)
         
-        view_menu = tk.Menu(menubar, tearoff=0)
-        view_menu.add_command(label="Statistics", command=self.show_statistics)
-        view_menu.add_command(label="Word Frequency", command=self.show_word_frequency)
-        view_menu.add_command(label="Toggle Theme", command=self.toggle_theme)
+        # VIEW MENU
+        view_menu = tk.Menu(menubar, tearoff=0, font=("Segoe UI", 9))
+        view_menu.add_command(label="📊 Statistics", accelerator="Ctrl+Shift+S", command=self.show_statistics)
+        view_menu.add_command(label="📈 Word Frequency", accelerator="Ctrl+Shift+F", command=self.show_word_frequency)
+        view_menu.add_separator()
+        view_menu.add_command(label="🌓 Toggle Theme", accelerator="F9", command=self.toggle_theme)
         menubar.add_cascade(label="View", menu=view_menu)
+        
+        # HELP MENU
+        help_menu = tk.Menu(menubar, tearoff=0, font=("Segoe UI", 9))
+        help_menu.add_command(label="⌨ Keyboard Shortcuts", command=self.show_shortcuts)
+        help_menu.add_command(label="ℹ About", command=self.show_about)
+        menubar.add_cascade(label="Help", menu=help_menu)
         
         self.config(menu=menubar)
 
     def create_toolbar(self):
-        toolbar = tk.Frame(self, bd=1, relief=tk.RAISED, bg="#e1e1e1", height=40)
+        toolbar = tk.Frame(self, bd=1, relief=tk.RAISED, bg="#e8e8e8", height=45)
         toolbar.pack(side=tk.TOP, fill=tk.X)
 
-        self.font_var = tk.StringVar(value="Arial")
+        # Font selection
+        tk.Label(toolbar, text="Font:", bg="#e8e8e8", font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(10, 2))
+        
+        self.font_var = tk.StringVar(value="Consolas")
         font_box = ttk.Combobox(toolbar, textvariable=self.font_var, 
-                               values=["Arial", "Courier New", "Consolas", "Times New Roman"], 
-                               width=15, state="readonly")
-        font_box.pack(side=tk.LEFT, padx=(10, 2), pady=5)
+                               values=["Consolas", "Courier New", "Arial", "Times New Roman", "Segoe UI"], 
+                               width=12, state="readonly", font=("Segoe UI", 9))
+        font_box.pack(side=tk.LEFT, padx=2, pady=7)
         font_box.bind("<<ComboboxSelected>>", self.apply_font)
 
-        self.size_var = tk.StringVar(value="12")
+        self.size_var = tk.StringVar(value="11")
         size_box = ttk.Combobox(toolbar, textvariable=self.size_var, 
-                               values=[10, 11, 12, 14, 16, 18, 20, 24], width=3)
-        size_box.pack(side=tk.LEFT, padx=2, pady=5)
+                               values=[9, 10, 11, 12, 14, 16, 18, 20, 24], width=3, font=("Segoe UI", 9))
+        size_box.pack(side=tk.LEFT, padx=2, pady=7)
         size_box.bind("<<ComboboxSelected>>", self.apply_font)
 
-        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=5)
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=7)
 
-        def make_btn(text, cmd, font_style):
-            btn = tk.Button(toolbar, text=text, command=cmd, font=font_style, 
-                           width=3, relief=tk.FLAT, bg="#e1e1e1")
-            btn.pack(side=tk.LEFT, padx=2, pady=5)
+        # Formatting buttons
+        def make_btn(text, cmd, tooltip, bg_color="#555"):
+            btn = tk.Button(toolbar, text=text, command=cmd, font=("Segoe UI", 10, "bold"), 
+                           width=3, relief=tk.FLAT, bg=bg_color, fg="white", cursor="hand2")
+            btn.pack(side=tk.LEFT, padx=2, pady=7)
+            return btn
 
-        make_btn("B", lambda: self.format_text("bold"), ("Times", 11, "bold"))
-        make_btn("I", lambda: self.format_text("italic"), ("Times", 11, "italic"))
-        make_btn("U", lambda: self.format_text("underline"), ("Times", 11, "underline"))
+        make_btn("B", lambda: self.format_text("bold"), "Bold (Ctrl+B)")
+        make_btn("I", lambda: self.format_text("italic"), "Italic (Ctrl+I)")
+        make_btn("U", lambda: self.format_text("underline"), "Underline (Ctrl+U)")
 
-        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=5)
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=7)
 
-        tk.Button(toolbar, text="🔍 Find", command=self.open_find, 
-                 bg="#2196F3", fg="white", relief=tk.FLAT).pack(side=tk.LEFT, padx=2, pady=5)
+        # Tool buttons
+        tk.Button(toolbar, text="🔍", command=self.open_find, font=("Segoe UI", 12),
+                 bg="#2196F3", fg="white", relief=tk.FLAT, width=3, cursor="hand2").pack(side=tk.LEFT, padx=2, pady=7)
         
-        tk.Button(toolbar, text="📊 Stats", command=self.show_statistics, 
-                 bg="#4CAF50", fg="white", relief=tk.FLAT).pack(side=tk.LEFT, padx=2, pady=5)
+        tk.Button(toolbar, text="📊", command=self.show_statistics, font=("Segoe UI", 12),
+                 bg="#4CAF50", fg="white", relief=tk.FLAT, width=3, cursor="hand2").pack(side=tk.LEFT, padx=2, pady=7)
         
-        tk.Button(toolbar, text="✓ Spell", command=self.check_word_spelling, 
-                 bg="#9C27B0", fg="white", relief=tk.FLAT).pack(side=tk.LEFT, padx=2, pady=5)
+        tk.Button(toolbar, text="✓", command=self.check_word_spelling, font=("Segoe UI", 12),
+                 bg="#9C27B0", fg="white", relief=tk.FLAT, width=3, cursor="hand2").pack(side=tk.LEFT, padx=2, pady=7)
         
-        tk.Button(toolbar, text="Sort", command=self.sort_lines, 
-                 bg="#FF9800", fg="white", relief=tk.FLAT).pack(side=tk.LEFT, padx=2, pady=5)
-        
-        tk.Button(toolbar, text="Theme", command=self.toggle_theme, 
-                 bg="#444", fg="white", relief=tk.FLAT).pack(side=tk.LEFT, padx=2, pady=5)
+        tk.Button(toolbar, text="🌓", command=self.toggle_theme, font=("Segoe UI", 12),
+                 bg="#444", fg="white", relief=tk.FLAT, width=3, cursor="hand2").pack(side=tk.LEFT, padx=2, pady=7)
 
     def get_active_editor(self):
         try:
@@ -734,45 +822,85 @@ class TextEditor(tk.Tk):
 
     def file_new(self):
         editor_frame = SmartEditor(self.notebook)
-        self.notebook.add(editor_frame, text="Untitled")
+        self.notebook.add(editor_frame, text="📄 Untitled")
         self.notebook.select(editor_frame)
         self.file_map[editor_frame] = None
+        self.status_var.set("New document created")
 
     def file_open(self):
         filepath = filedialog.askopenfilename(
-            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
+            filetypes=[("Text Files", "*.txt"), ("Python Files", "*.py"), 
+                      ("C Files", "*.c"), ("All Files", "*.*")]
         )
         if filepath:
             self.file_new()
             editor = self.get_active_editor()
             
-            with open(filepath, 'r', encoding='utf-8') as f:
-                content = f.read()
-                editor.insert("1.0", content)
-                backend.lib.push_undo_state(content.encode('utf-8'))
-            
-            current_tab = self.notebook.nametowidget(self.notebook.select())
-            self.file_map[current_tab] = filepath
-            self.notebook.tab(current_tab, text=os.path.basename(filepath))
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    editor.insert("1.0", content)
+                    backend.lib.push_undo_state(content.encode('utf-8'))
+                
+                current_tab = self.notebook.nametowidget(self.notebook.select())
+                self.file_map[current_tab] = filepath
+                filename = os.path.basename(filepath)
+                self.notebook.tab(current_tab, text=f"📄 {filename}")
+                self.status_var.set(f"Opened: {filepath}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not open file:\n{e}")
 
     def file_save(self):
-        current_tab = self.notebook.nametowidget(self.notebook.select())
+        try:
+            current_tab = self.notebook.nametowidget(self.notebook.select())
+        except:
+            return
+            
         editor = current_tab.text
         filepath = self.file_map.get(current_tab)
 
         if not filepath:
-            filepath = filedialog.asksaveasfilename(
-                defaultextension=".txt", 
-                filetypes=[("Text Files", "*.txt")]
-            )
-            if not filepath: 
-                return
-            self.file_map[current_tab] = filepath
-            self.notebook.tab(current_tab, text=os.path.basename(filepath))
+            self.file_save_as()
+            return
 
-        content = editor.get("1.0", tk.END).encode('utf-8')
-        backend.lib.save_file(filepath.encode('utf-8'), content)
-        self.status_var.set(f"Saved: {filepath}")
+        try:
+            content = editor.get("1.0", tk.END).encode('utf-8')
+            backend.lib.save_file(filepath.encode('utf-8'), content)
+            self.status_var.set(f"✓ Saved: {filepath}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not save file:\n{e}")
+
+    def file_save_as(self):
+        try:
+            current_tab = self.notebook.nametowidget(self.notebook.select())
+        except:
+            return
+            
+        editor = current_tab.text
+        
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".txt", 
+            filetypes=[("Text Files", "*.txt"), ("Python Files", "*.py"), 
+                      ("C Files", "*.c"), ("All Files", "*.*")]
+        )
+        
+        if not filepath: 
+            return
+            
+        self.file_map[current_tab] = filepath
+        filename = os.path.basename(filepath)
+        self.notebook.tab(current_tab, text=f"📄 {filename}")
+        self.file_save()
+
+    def close_tab(self):
+        try:
+            current_tab = self.notebook.select()
+            self.notebook.forget(current_tab)
+            
+            if len(self.notebook.tabs()) == 0:
+                self.file_new()
+        except:
+            pass
 
     def edit_undo(self, event=None):
         editor = self.get_active_editor()
@@ -787,7 +915,7 @@ class TextEditor(tk.Tk):
         if backend.lib.perform_undo(current, buffer):
             editor.delete("1.0", tk.END)
             editor.insert("1.0", buffer.value.decode())
-            self.status_var.set("Undo")
+            self.status_var.set("↶ Undo")
         else:
             self.status_var.set("Nothing to undo")
 
@@ -805,7 +933,7 @@ class TextEditor(tk.Tk):
         if backend.lib.perform_redo(current, buffer):
             editor.delete("1.0", tk.END)
             editor.insert("1.0", buffer.value.decode())
-            self.status_var.set("Redo")
+            self.status_var.set("↷ Redo")
         else:
             self.status_var.set("Nothing to redo")
 
@@ -823,8 +951,9 @@ class TextEditor(tk.Tk):
                     editor.tag_remove(tag_name, "sel.first", "sel.last")
                 else:
                     editor.tag_add(tag_name, "sel.first", "sel.last")
+                self.status_var.set(f"Applied {tag_name}")
         except tk.TclError:
-            pass 
+            messagebox.showinfo("Format", "Select text first")
         return "break"
 
     def apply_font(self, event=None):
@@ -833,37 +962,47 @@ class TextEditor(tk.Tk):
             return
         
         f_name = self.font_var.get()
-        f_size = self.size_var.get()
+        f_size = int(self.size_var.get())
         
-        editor.configure(font=(f_name, int(f_size)))
-        editor.tag_configure("bold", font=(f_name, int(f_size), "bold"))
-        editor.tag_configure("italic", font=(f_name, int(f_size), "italic"))
+        editor.configure(font=(f_name, f_size))
+        editor.tag_configure("bold", font=(f_name, f_size, "bold"))
+        editor.tag_configure("italic", font=(f_name, f_size, "italic"))
+        self.status_var.set(f"Font: {f_name} {f_size}pt")
+
+    def select_all(self, event=None):
+        editor = self.get_active_editor()
+        if editor:
+            editor.tag_add("sel", "1.0", "end")
+            return "break"
 
     def toggle_theme(self):
         if self.current_theme == "light":
             self.apply_theme("dark")
             self.current_theme = "dark"
+            self.status_var.set("🌙 Dark theme activated")
         else:
             self.apply_theme("light")
             self.current_theme = "light"
+            self.status_var.set("☀ Light theme activated")
 
     def apply_theme(self, theme):
         if theme == "dark":
             text_bg = "#1e1e1e"
-            fg = "#ffffff"
-            insert_color = "white"
-            ln_bg = "#333333"
-            ln_fg = "#888"
+            fg = "#d4d4d4"
+            insert_color = "#ffffff"
+            ln_bg = "#252526"
+            ln_fg = "#858585"
         else:
             text_bg = "#ffffff"
             fg = "#000000"
-            insert_color = "black"
+            insert_color = "#000000"
             ln_bg = "#f5f5f5"
             ln_fg = "#666"
         
         for tab in self.notebook.tabs():
             widget = self.notebook.nametowidget(tab)
-            widget.text.config(bg=text_bg, fg=fg, insertbackground=insert_color)
+            widget.text.config(bg=text_bg, fg=fg, insertbackground=insert_color, 
+                             selectbackground="#264f78" if theme == "dark" else "#cce8ff")
             widget.linenumbers.config(background=ln_bg, foreground=ln_fg)
     
     def update_statistics(self):
@@ -890,10 +1029,10 @@ class TextEditor(tk.Tk):
         lines = backend.lib.count_lines(content)
         chars = backend.lib.count_characters(content)
         
-        msg = f"Document Statistics:\n\n"
-        msg += f"Lines: {lines}\n"
-        msg += f"Words: {words}\n"
-        msg += f"Characters: {chars}\n"
+        msg = f"📊 Document Statistics\n\n"
+        msg += f"📏 Lines: {lines}\n"
+        msg += f"📝 Words: {words}\n"
+        msg += f"🔤 Characters: {chars}\n"
         
         messagebox.showinfo("Statistics", msg)
     
@@ -907,7 +1046,7 @@ class TextEditor(tk.Tk):
         if not editor:
             return
         
-        line_num = simpledialog.askinteger("Go to Line", "Line number:", minvalue=1)
+        line_num = simpledialog.askinteger("Go to Line", "Enter line number:", minvalue=1)
         if line_num:
             content = editor.get("1.0", tk.END).encode()
             char_pos = c_int()
@@ -915,7 +1054,9 @@ class TextEditor(tk.Tk):
             if backend.lib.get_line_position(content, line_num, byref(char_pos)):
                 editor.mark_set(tk.INSERT, f"1.0+{char_pos.value}c")
                 editor.see(tk.INSERT)
-                self.status_var.set(f"Line {line_num}")
+                self.status_var.set(f"➜ Jumped to line {line_num}")
+            else:
+                messagebox.showwarning("Go to Line", f"Line {line_num} does not exist")
     
     def duplicate_line(self):
         editor = self.get_active_editor()
@@ -932,7 +1073,7 @@ class TextEditor(tk.Tk):
         editor.insert("1.0", content.value.decode())
         editor.master.is_restoring = False
         
-        self.status_var.set(f"Line {current_line} duplicated")
+        self.status_var.set(f"📋 Line {current_line} duplicated")
         return "break"
     
     def sort_lines(self):
@@ -941,7 +1082,6 @@ class TextEditor(tk.Tk):
             return
         
         content = create_string_buffer(editor.get("1.0", tk.END).encode(), 10000)
-        
         backend.lib.sort_lines(content, 10000)
         
         editor.master.is_restoring = True
@@ -949,7 +1089,7 @@ class TextEditor(tk.Tk):
         editor.insert("1.0", content.value.decode())
         editor.master.is_restoring = False
         
-        self.status_var.set("Lines sorted")
+        self.status_var.set("📊 Lines sorted alphabetically")
     
     def show_word_frequency(self):
         editor = self.get_active_editor()
@@ -957,6 +1097,10 @@ class TextEditor(tk.Tk):
             return
         
         content = editor.get("1.0", tk.END)
+        if not content.strip():
+            messagebox.showinfo("Word Frequency", "Document is empty")
+            return
+            
         WordFrequencyDialog(self, content)
     
     def toggle_comment(self):
@@ -974,7 +1118,7 @@ class TextEditor(tk.Tk):
         editor.insert("1.0", content.value.decode())
         editor.master.is_restoring = False
         
-        self.status_var.set("Comment toggled")
+        self.status_var.set(f"💬 Line {current_line} comment toggled")
         return "break"
     
     def trim_whitespace(self):
@@ -990,7 +1134,7 @@ class TextEditor(tk.Tk):
         editor.insert("1.0", content.value.decode())
         editor.master.is_restoring = False
         
-        self.status_var.set("Whitespace trimmed")
+        self.status_var.set("✂ Trailing whitespace removed")
     
     def convert_to_uppercase(self):
         editor = self.get_active_editor()
@@ -1005,9 +1149,9 @@ class TextEditor(tk.Tk):
             editor.delete(sel_start, sel_end)
             editor.insert(sel_start, selected_text.upper())
             
-            self.status_var.set("Converted to UPPERCASE")
+            self.status_var.set("🔠 Converted to UPPERCASE")
         except tk.TclError:
-            messagebox.showinfo("Info", "Select text first")
+            messagebox.showinfo("Convert Case", "Select text first")
     
     def convert_to_lowercase(self):
         editor = self.get_active_editor()
@@ -1022,9 +1166,9 @@ class TextEditor(tk.Tk):
             editor.delete(sel_start, sel_end)
             editor.insert(sel_start, selected_text.lower())
             
-            self.status_var.set("Converted to lowercase")
+            self.status_var.set("🔡 Converted to lowercase")
         except tk.TclError:
-            messagebox.showinfo("Info", "Select text first")
+            messagebox.showinfo("Convert Case", "Select text first")
     
     def move_line_up(self):
         editor = self.get_active_editor()
@@ -1042,8 +1186,10 @@ class TextEditor(tk.Tk):
         editor.delete("1.0", tk.END)
         editor.insert("1.0", content.value.decode())
         editor.mark_set(tk.INSERT, f"{current_line-1}.0")
+        editor.see(tk.INSERT)
         editor.master.is_restoring = False
         
+        self.status_var.set(f"⬆ Moved line {current_line} up")
         return "break"
     
     def move_line_down(self):
@@ -1060,8 +1206,10 @@ class TextEditor(tk.Tk):
         editor.delete("1.0", tk.END)
         editor.insert("1.0", content.value.decode())
         editor.mark_set(tk.INSERT, f"{current_line+1}.0")
+        editor.see(tk.INSERT)
         editor.master.is_restoring = False
         
+        self.status_var.set(f"⬇ Moved line {current_line} down")
         return "break"
     
     def remove_empty_lines(self):
@@ -1077,7 +1225,7 @@ class TextEditor(tk.Tk):
         editor.insert("1.0", content.value.decode())
         editor.master.is_restoring = False
         
-        self.status_var.set("Empty lines removed")
+        self.status_var.set("🗑 Empty lines removed")
     
     def check_word_spelling(self):
         editor = self.get_active_editor()
@@ -1086,7 +1234,7 @@ class TextEditor(tk.Tk):
         
         word = editor.master.get_current_word()
         if len(word) < 2:
-            messagebox.showinfo("Info", "Place cursor on a word")
+            messagebox.showinfo("Spell Check", "Place cursor on a word to check spelling")
             return
         
         AutoCorrectDialog(self, word, editor)
@@ -1094,6 +1242,12 @@ class TextEditor(tk.Tk):
     def autocorrect_document(self):
         editor = self.get_active_editor()
         if not editor:
+            return
+        
+        result = messagebox.askyesno("Auto-Correct", 
+                                     "This will automatically correct all misspelled words in the document.\n\n"
+                                     "Continue?")
+        if not result:
             return
         
         content = create_string_buffer(editor.get("1.0", tk.END).encode(), 10000)
@@ -1105,12 +1259,97 @@ class TextEditor(tk.Tk):
             editor.insert("1.0", content.value.decode())
             editor.master.is_restoring = False
             
-            self.status_var.set(f"{corrections_made} corrections made")
-            messagebox.showinfo("Auto-Correct", f"Made {corrections_made} corrections")
+            self.status_var.set(f"✓ Made {corrections_made} corrections")
+            messagebox.showinfo("Auto-Correct", f"Successfully corrected {corrections_made} word(s)!")
         else:
-            messagebox.showinfo("Auto-Correct", "No corrections needed")
+            messagebox.showinfo("Auto-Correct", "No corrections needed - document looks good! ✓")
+    
+    def show_shortcuts(self):
+        shortcuts = """
+⌨ KEYBOARD SHORTCUTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+FILE OPERATIONS:
+  Ctrl+N    New document
+  Ctrl+O    Open file
+  Ctrl+S    Save
+  Ctrl+Shift+S    Save as
+  Ctrl+W    Close tab
+
+EDIT OPERATIONS:
+  Ctrl+Z    Undo
+  Ctrl+Y    Redo
+  Ctrl+A    Select all
+
+FIND & NAVIGATE:
+  Ctrl+F    Find text
+  F3        Find (alternative)
+  Ctrl+G    Go to line
+
+TEXT FORMATTING:
+  Ctrl+B    Bold
+  Ctrl+I    Italic
+  Ctrl+U    Underline
+
+ADVANCED EDITING:
+  Ctrl+D    Duplicate line
+  Ctrl+/    Toggle comment
+  Alt+↑     Move line up
+  Alt+↓     Move line down
+
+CASE CONVERSION:
+  Ctrl+Shift+U    UPPERCASE
+  Ctrl+Shift+L    lowercase
+
+TOOLS:
+  F7        Check spelling
+  Ctrl+Shift+S    Statistics
+  Ctrl+Shift+F    Word frequency
+  F9        Toggle theme
+        """
+        
+        msg_window = tk.Toplevel(self)
+        msg_window.title("Keyboard Shortcuts")
+        msg_window.geometry("450x650")
+        msg_window.transient(self)
+        msg_window.configure(bg="#f5f5f5")
+        
+        text = tk.Text(msg_window, font=("Consolas", 10), wrap=tk.WORD, 
+                      bg="#f5f5f5", relief=tk.FLAT, padx=20, pady=20)
+        text.pack(fill=tk.BOTH, expand=True)
+        text.insert("1.0", shortcuts)
+        text.config(state=tk.DISABLED)
+        
+        tk.Button(msg_window, text="Close", command=msg_window.destroy,
+                 bg="#2196F3", fg="white", font=("Segoe UI", 10, "bold"),
+                 relief=tk.FLAT, padx=30, pady=10, cursor="hand2").pack(pady=10)
+    
+    def show_about(self):
+        about_text = """
+🚀 Smart Text Editor
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Advanced Edition v2.0
+
+A powerful text editor with:
+✓ Real-time autocomplete
+✓ Smart auto-correct
+✓ Advanced find & replace
+✓ Word frequency analysis
+✓ Document statistics
+✓ Dark/Light themes
+✓ Multi-tab support
+✓ Line manipulation tools
+✓ Comment toggling
+✓ And much more!
+
+Built with Python & C
+Hybrid architecture for maximum performance
+        """
+        
+        messagebox.showinfo("About", about_text)
 
 
 if __name__ == "__main__":
-    app = TextEditor()
+    app = SmartTextEditor()
     app.mainloop()
