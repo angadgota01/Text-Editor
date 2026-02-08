@@ -34,10 +34,14 @@ class BackendManager:
             self.lib = CDLL(lib_path)
             self.lib.init()
        
-            self.lib.push_undo_state.argtypes = [c_char_p]
-            self.lib.perform_undo.argtypes = [c_char_p, c_char_p]
+            self.lib.create_stack_instance.argtypes = []
+            self.lib.create_stack_instance.restype = c_int
+            self.lib.destroy_stack_instance.argtypes = [c_int]
+            
+            self.lib.push_undo_state.argtypes = [c_int, c_char_p]
+            self.lib.perform_undo.argtypes = [c_int, c_char_p, c_char_p]
             self.lib.perform_undo.restype = c_int
-            self.lib.perform_redo.argtypes = [c_char_p, c_char_p]
+            self.lib.perform_redo.argtypes = [c_int, c_char_p, c_char_p]
             self.lib.perform_redo.restype = c_int
 
             self.lib.save_file.argtypes = [c_char_p, c_char_p]
@@ -62,8 +66,10 @@ backend = BackendManager()
 
 
 class AdvancedText(tk.Frame):
-    def __init__(self, master=None, **kwargs):
+    def __init__(self, master=None, stack_instance_id=None, **kwargs):
         super().__init__(master, **kwargs)
+
+        self.stack_instance_id = stack_instance_id
 
         
         
@@ -216,9 +222,10 @@ class AdvancedText(tk.Frame):
 
 
     def push_state_to_c(self):
-       
+        if self.stack_instance_id is None:
+            return
         content = self.text.get("1.0", "end-1c").encode('utf-8')
-        backend.lib.push_undo_state(content)
+        backend.lib.push_undo_state(self.stack_instance_id, content)
 
     def get_current_word(self):
         index = self.text.index(tk.INSERT)
@@ -482,13 +489,21 @@ class ResearchEditor(tk.Tk):
         self.geometry("1200x800")
        
         self.file_map = {} 
+        self.tab_stack_map = {}  # Maps tab widget to stack instance ID 
         
         self.create_menus()
        
+
         self.create_toolbar()
 
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Add right-click context menu for closing tabs
+        self.notebook.bind('<Button-2>', self._on_tab_right_click)  # Right-click on Windows/Linux
+        self.notebook.bind('<Button-3>', self._on_tab_right_click)  # Right-click alternative
+        if platform.system() == "Darwin":  # macOS
+            self.notebook.bind('<Control-Button-1>', self._on_tab_right_click)
 
        
         self.status_var = tk.StringVar(value="Ready")
@@ -504,6 +519,10 @@ class ResearchEditor(tk.Tk):
         self.bind("<Control-b>", lambda e: self.format_text("bold"))
         self.bind("<Control-i>", lambda e: self.format_text("italic"))
         self.bind("<Control-u>", lambda e: self.format_text("underline"))
+        
+        # Close tab binding (Cmd+W on Mac, Ctrl+W otherwise)
+        close_key = "<Command-w>" if platform.system() == "Darwin" else "<Control-w>"
+        self.bind(close_key, self.close_current_tab)
 
         
         self.file_new()
@@ -514,17 +533,19 @@ class ResearchEditor(tk.Tk):
         
         
         file_menu = tk.Menu(menubar, tearoff=0)
-        file_menu.add_command(label="New Project", accelerator="Ctrl+N", command=self.file_new)
-        file_menu.add_command(label="Open File...", accelerator="Ctrl+O", command=self.file_open)
-        file_menu.add_command(label="Save", accelerator="Ctrl+S", command=self.file_save)
+        file_menu.add_command(label="New Project", accelerator="Cmd+N" if platform.system() == "Darwin" else "Ctrl+N", command=self.file_new)
+        file_menu.add_command(label="Open File...", accelerator="Cmd+O" if platform.system() == "Darwin" else "Ctrl+O", command=self.file_open)
+        file_menu.add_command(label="Save", accelerator="Cmd+S" if platform.system() == "Darwin" else "Ctrl+S", command=self.file_save)
         file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.quit)
+        file_menu.add_command(label="Close Tab", accelerator="Cmd+W" if platform.system() == "Darwin" else "Ctrl+W", command=lambda: self.close_current_tab())
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", accelerator="Cmd+Q" if platform.system() == "Darwin" else "Ctrl+Q", command=self.quit)
         menubar.add_cascade(label="File", menu=file_menu)
 
      
         edit_menu = tk.Menu(menubar, tearoff=0)
-        edit_menu.add_command(label="Undo", accelerator="Ctrl+Z", command=self.edit_undo)
-        edit_menu.add_command(label="Redo", accelerator="Ctrl+Y", command=self.edit_redo)
+        edit_menu.add_command(label="Undo", accelerator="Cmd+Z" if platform.system() == "Darwin" else "Ctrl+Z", command=self.edit_undo)
+        edit_menu.add_command(label="Redo", accelerator="Cmd+Y" if platform.system() == "Darwin" else "Ctrl+Y", command=self.edit_redo)
         menubar.add_cascade(label="Edit", menu=edit_menu)
 
         self.config(menu=menubar)
@@ -570,30 +591,113 @@ class ResearchEditor(tk.Tk):
             return self.notebook.nametowidget(tab_id).text
         except:
             return None
+    
+    def _on_tab_right_click(self, event):
+        """Show context menu when right-clicking on a tab"""
+        try:
+            # Find which tab was clicked
+            clicked_tab_index = self.notebook.index(f"@{event.x},{event.y}")
+            current_tabs = self.notebook.tabs()
+            
+            if clicked_tab_index < len(current_tabs):
+                clicked_widget = self.notebook.nametowidget(current_tabs[clicked_tab_index])
+                
+                # Create context menu
+                context_menu = tk.Menu(self, tearoff=0)
+                context_menu.add_command(
+                    label="Close Tab",
+                    command=lambda: self.close_tab(clicked_widget)
+                )
+                context_menu.add_command(
+                    label="Close Other Tabs",
+                    command=lambda: self._close_other_tabs(clicked_widget)
+                )
+                
+                # Show menu at cursor position
+                context_menu.tk_popup(event.x_root, event.y_root)
+        except:
+            pass
+        finally:
+            # Clean up menu
+            try:
+                context_menu.grab_release()
+            except:
+                pass
+    
+    def _close_other_tabs(self, keep_tab):
+        """Close all tabs except the specified one"""
+        tabs_to_close = []
+        for tab_id in self.notebook.tabs():
+            tab_widget = self.notebook.nametowidget(tab_id)
+            if tab_widget != keep_tab:
+                tabs_to_close.append(tab_widget)
+        
+        for tab in tabs_to_close:
+            self.close_tab(tab)
+    
+    def close_current_tab(self, event=None):
+        """Close the currently active tab"""
+        try:
+            current_tab = self.notebook.nametowidget(self.notebook.select())
+            self.close_tab(current_tab)
+        except:
+            pass
+        return "break"
+    
+    def close_tab(self, editor_frame):
+        """Close a tab and clean up resources"""
+        # Clean up stack instance
+        stack_id = self.tab_stack_map.get(editor_frame)
+        if stack_id is not None:
+            backend.lib.destroy_stack_instance(stack_id)
+            del self.tab_stack_map[editor_frame]
+        
+        # Clean up file map
+        if editor_frame in self.file_map:
+            del self.file_map[editor_frame]
+        
+        # Remove the tab
+        self.notebook.forget(editor_frame)
+        self.status_var.set("Tab closed")
 
     def file_new(self):
-        editor_frame = AdvancedText(self.notebook)
+        # Create new stack instance
+        stack_id = backend.lib.create_stack_instance()
+        if stack_id < 0:
+            messagebox.showerror("Error", "Cannot create more tabs (maximum reached)")
+            return
+            
+        editor_frame = AdvancedText(self.notebook, stack_instance_id=stack_id)
         self.notebook.add(editor_frame, text="Untitled")
         self.notebook.select(editor_frame)
         self.file_map[editor_frame] = None
+        self.tab_stack_map[editor_frame] = stack_id
         self.status_var.set("New document created.")
 
     def file_open(self):
         filepath = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")])
         if filepath:
-            self.file_new()
-            editor = self.get_active_editor()
+            # Create new stack instance
+            stack_id = backend.lib.create_stack_instance()
+            if stack_id < 0:
+                messagebox.showerror("Error", "Cannot create more tabs (maximum reached)")
+                return
+                
+            editor_frame = AdvancedText(self.notebook, stack_instance_id=stack_id)
+            filename = os.path.basename(filepath)
+            self.notebook.add(editor_frame, text=filename)
+            self.notebook.select(editor_frame)
+            
+            editor = editor_frame.text
             
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read()
                 editor.insert("1.0", content)
               
-                backend.lib.push_undo_state(content.encode('utf-8'))
+                backend.lib.push_undo_state(stack_id, content.encode('utf-8'))
             
-          
-            current_tab = self.notebook.nametowidget(self.notebook.select())
-            self.file_map[current_tab] = filepath
-            self.notebook.tab(current_tab, text=os.path.basename(filepath))
+            self.file_map[editor_frame] = filepath
+            self.tab_stack_map[editor_frame] = stack_id
             self.status_var.set(f"Opened: {filepath}")
 
     def file_save(self):
@@ -617,12 +721,17 @@ class ResearchEditor(tk.Tk):
         if not editor:
             return "break"
 
+        current_tab = self.notebook.nametowidget(self.notebook.select())
+        stack_id = self.tab_stack_map.get(current_tab)
+        if stack_id is None:
+            return "break"
+
         current = editor.get("1.0", tk.END).encode()
         buffer = create_string_buffer(5000)
 
         editor.master.is_restoring = True
 
-        if backend.lib.perform_undo(current, buffer):
+        if backend.lib.perform_undo(stack_id, current, buffer):
             editor.delete("1.0", tk.END)
             editor.insert("1.0", buffer.value.decode())
             editor.mark_set(tk.INSERT, "end-1c")
@@ -639,10 +748,15 @@ class ResearchEditor(tk.Tk):
         if not editor:
             return "break"
 
+        current_tab = self.notebook.nametowidget(self.notebook.select())
+        stack_id = self.tab_stack_map.get(current_tab)
+        if stack_id is None:
+            return "break"
+
         current = editor.get("1.0", tk.END).encode()
         buffer = create_string_buffer(5000)
 
-        if backend.lib.perform_redo(current, buffer):
+        if backend.lib.perform_redo(stack_id, current, buffer):
             editor.delete("1.0", tk.END)
             editor.insert("1.0", buffer.value.decode())
             editor.mark_set("insert", "end-1c")
