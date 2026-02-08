@@ -8,6 +8,7 @@
 #define ALPHABET_SIZE 26
 #define MAX_WORD_LEN 64
 #define MAX_SUGGESTIONS 5
+#define MAX_INSTANCES 50
 
 /* ================= STACK ================= */
 
@@ -16,8 +17,14 @@ typedef struct {
   int top;
 } Stack;
 
-static Stack undoStack;
-static Stack redoStack;
+typedef struct {
+  Stack undoStack;
+  Stack redoStack;
+  int in_use;
+} StackInstance;
+
+static StackInstance instances[MAX_INSTANCES];
+static int instances_initialized = 0;
 
 /* ================= TRIE ================= */
 
@@ -128,11 +135,37 @@ void dfs_collect(TrieNode *node, char *buffer, int depth,
 #endif
 
 EXPORT void init() {
-  stack_init(&undoStack);
-  stack_init(&redoStack);
+  if (!instances_initialized) {
+    for (int i = 0; i < MAX_INSTANCES; i++) {
+      instances[i].in_use = 0;
+      stack_init(&instances[i].undoStack);
+      stack_init(&instances[i].redoStack);
+    }
+    instances_initialized = 1;
+  }
   trie_init();
 
   trie_load_from_file("./c_ds/words.txt");
+}
+
+EXPORT int create_stack_instance() {
+  for (int i = 0; i < MAX_INSTANCES; i++) {
+    if (!instances[i].in_use) {
+      instances[i].in_use = 1;
+      stack_clear(&instances[i].undoStack);
+      stack_clear(&instances[i].redoStack);
+      return i;
+    }
+  }
+  return -1; // No available instances
+}
+
+EXPORT void destroy_stack_instance(int instance_id) {
+  if (instance_id >= 0 && instance_id < MAX_INSTANCES) {
+    instances[instance_id].in_use = 0;
+    stack_clear(&instances[instance_id].undoStack);
+    stack_clear(&instances[instance_id].redoStack);
+  }
 }
 
 EXPORT void free_mem(void *ptr) {
@@ -152,38 +185,58 @@ EXPORT void save_file(const char *filename, const char *text) {
   fclose(f);
 }
 
-EXPORT void push_undo_state(const char *text)
-{
-    if (undoStack.top >= 0 &&
-        strcmp(undoStack.data[undoStack.top], text) == 0)
-    {
-        return; // no change, don't push duplicate
-    }
-    stack_push(&undoStack, strdup(text));
-    stack_clear(&redoStack);
-    printf("UNDO TOP: %d\n", undoStack.top);
+EXPORT void push_undo_state(int instance_id, const char *text) {
+  if (instance_id < 0 || instance_id >= MAX_INSTANCES ||
+      !instances[instance_id].in_use)
+    return;
 
-    if (undoStack.top >= 0) {
-        printf("undo stack data: %s\n",
-               undoStack.data[undoStack.top]);
-    }
+  Stack *undoStack = &instances[instance_id].undoStack;
+  Stack *redoStack = &instances[instance_id].redoStack;
+
+  if (undoStack->top >= 0 &&
+      strcmp(undoStack->data[undoStack->top], text) == 0) {
+    return; // Don't push duplicate
+  }
+
+  stack_push(undoStack, strdup(text));
+  stack_clear(redoStack);
+
+  printf("UNDO TOP (instance %d): %d\n", instance_id, undoStack->top);
+
+  if (undoStack->top >= 0) {
+    printf("undo stack data: %s\n", undoStack->data[undoStack->top]);
+  }
 }
 
-EXPORT int perform_undo(const char *current, char *out) {
-  if (undoStack.top <= 0)
+EXPORT int perform_undo(int instance_id, const char *current, char *out) {
+  if (instance_id < 0 || instance_id >= MAX_INSTANCES ||
+      !instances[instance_id].in_use)
     return 0;
 
-  stack_push(&redoStack, current);
-  undoStack.top--;
-  return stack_peek(&undoStack, out);
+  Stack *undoStack = &instances[instance_id].undoStack;
+  Stack *redoStack = &instances[instance_id].redoStack;
+
+  if (undoStack->top <= 0)
+    return 0;
+
+  stack_push(redoStack, current);
+  undoStack->top--;
+  return stack_peek(undoStack, out);
 }
 
-EXPORT int perform_redo(const char *current, char *out) {
-  if (redoStack.top < 0)
+EXPORT int perform_redo(int instance_id, const char *current, char *out) {
+  if (instance_id < 0 || instance_id >= MAX_INSTANCES ||
+      !instances[instance_id].in_use)
     return 0;
 
-  stack_push(&undoStack, current);
-  return stack_pop(&redoStack, out);
+  Stack *undoStack = &instances[instance_id].undoStack;
+  Stack *redoStack = &instances[instance_id].redoStack;
+
+  if (redoStack->top < 0)
+    return 0;
+
+  stack_push(undoStack, current);
+  return stack_pop(redoStack, out);
 }
 
 EXPORT int autocomplete(const char *prefix,
@@ -307,7 +360,7 @@ EXPORT int autocorrect(const char *word,
     return 0; // Word is correct
   }
 
-  // 2. Search for suggestions within distance 2
+  // Search for suggestions within distance 2
   int len = strlen(word);
   int *current_row = (int *)malloc((len + 1) * sizeof(int));
   for (int i = 0; i <= len; i++)
