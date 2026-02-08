@@ -152,11 +152,21 @@ EXPORT void save_file(const char *filename, const char *text) {
   fclose(f);
 }
 
-EXPORT void push_undo_state(const char *text) {
-  stack_push(&undoStack, text);
-  stack_clear(&redoStack);
-  printf("UNDO TOP: %d\n", undoStack.top);
-  printf("undo stack data: %s \n", undoStack.data[undoStack.top]);
+EXPORT void push_undo_state(const char *text)
+{
+    if (undoStack.top >= 0 &&
+        strcmp(undoStack.data[undoStack.top], text) == 0)
+    {
+        return; // no change, don't push duplicate
+    }
+    stack_push(&undoStack, strdup(text));
+    stack_clear(&redoStack);
+    printf("UNDO TOP: %d\n", undoStack.top);
+
+    if (undoStack.top >= 0) {
+        printf("undo stack data: %s\n",
+               undoStack.data[undoStack.top]);
+    }
 }
 
 EXPORT int perform_undo(const char *current, char *out) {
