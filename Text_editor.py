@@ -13,8 +13,8 @@ class BackendManager:
         system = platform.system()
         if system == "Windows":
             lib_name = "libds.dll"  
-        elif system == "Darwin": 
-            lib_name = "libds.dylib"
+        #elif system == "Darwin": 
+        #    lib_name = "libds.dylib"
         else:
             lib_name = "libds.so"
 
@@ -306,6 +306,7 @@ class AdvancedText(tk.Frame):
         self.is_restoring = False
 
         self.hide_autocomplete()
+        self.push_state_to_c()
         self.text.focus_set()
         return "break"
 
@@ -446,6 +447,7 @@ class AdvancedText(tk.Frame):
             self.is_restoring = False
         
         self.hide_autocorrect()
+        self.push_state_to_c()
         self.text.focus_set()
 
     def apply_correction(self, correction):
@@ -469,6 +471,7 @@ class AdvancedText(tk.Frame):
         self.is_restoring = False
 
         self.hide_autocorrect()
+        self.push_state_to_c()
 
 
 
